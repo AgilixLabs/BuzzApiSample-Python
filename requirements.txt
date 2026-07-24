@@ -1,0 +1,4 @@
+# Buzz API sample dependencies.
+# Compatible with Python 3.8+.
+cryptography>=3.4
+requests>=2.22
