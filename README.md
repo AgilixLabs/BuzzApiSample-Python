@@ -51,6 +51,13 @@ The sample is intentionally read-only — it can be run repeatedly without modif
 python -m pip install -r requirements.txt
 ```
 
+## Compatibility
+
+Written for **Python 3.8** for broad reach, and verified to run unchanged on every version
+through the current release (**3.8 – 3.14**). The code avoids 3.9+-only syntax, and the
+dependencies are lower-bounded only (`cryptography`, `requests`), so the newest releases install
+and work without changes. Nothing here discourages running on the latest Python.
+
 ## Configuration
 
 Configuration uses **environment variables** (12-factor style). For local development you can put
