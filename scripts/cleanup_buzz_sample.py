@@ -23,7 +23,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import (  # noqa: E402
-    admin_login, buzz_post, confirm, delete_public_key, response_code, PROJECT_ROOT,
+    admin_login, buzz_post, confirm, delete_public_key, item_result, response_code,
+    PROJECT_ROOT,
 )
 
 sys.path.insert(0, PROJECT_ROOT)
@@ -79,11 +80,16 @@ def main(argv=None) -> int:
     # Delete Application Identity account.
     print(f"\n-- Deleting Application Identity account (userid: {oauth_user_id}) --")
     resp = buzz_post(server, "deleteusers", {"requests": {"user": [{"userid": oauth_user_id}]}}, admin_token)
-    code = response_code(resp)
+    # The per-user outcome is authoritative.  The OUTER code is OK whenever the request
+    # was merely well formed, so checking it first would report success for a delete
+    # that was actually denied or whose target did not exist.
+    item = item_result(resp)
+    code = item.get("code") or response_code(resp)
+    detail = f" - {item['message']}" if item.get("message") else ""
     if code == "OK":
         print("Application Identity account deleted.")
     else:
-        print(f'Warning: delete returned code "{code}". Continuing.', file=sys.stderr)
+        print(f'Warning: delete returned code "{code}"{detail}. Continuing.', file=sys.stderr)
 
     # Remove local files.
     print("\n-- Removing local files --------------------------------")

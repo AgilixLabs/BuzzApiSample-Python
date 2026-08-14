@@ -79,7 +79,7 @@ class BuzzApiClient:
     Typical use::
 
         with BuzzApiClient.from_pem_file(
-            server_url="https://api.agilixbuzz.com",
+            server_url="https://backgroundapi.agilixbuzz.com",
             user_agent="MyApp/1.0 (Python; MyApp; admin@example.com)",
             oauth_user_id="12345678",
             oauth_kid="2025-q2",
