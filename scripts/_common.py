@@ -95,22 +95,27 @@ def confirm(label: str, default_yes: bool = False) -> bool:
 
 
 # ── Buzz API calls ──────────────────────────────────────────────────────────────
-# /cmd/* endpoints authenticate a session token via the _token query parameter.
-# /api/* (REST) endpoints authenticate via the Authorization: Bearer header.
+# Session tokens travel in an Authorization: Bearer header on both /cmd/* and
+# /api/* endpoints.  A _token query parameter is also accepted by /cmd/*, but a
+# credential in a URL is recorded by server and proxy access logs.
+# Buzz returns XML unless JSON is requested via Accept.
+def _auth_headers(token: Optional[str]) -> Dict[str, str]:
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def buzz_post(server: str, cmd: str, body: Any, token: Optional[str] = None) -> Dict[str, Any]:
-    params = {"_token": token} if token else None
-    resp = requests.post(f"{server}/cmd/{cmd}", params=params, json=body,
-                         headers={"Accept": "application/json"}, timeout=TIMEOUT)
+    resp = requests.post(f"{server}/cmd/{cmd}", json=body,
+                         headers=_auth_headers(token), timeout=TIMEOUT)
     return _safe_json(resp)
 
 
 def buzz_get(server: str, cmd: str, params: Optional[Dict[str, Any]] = None,
              token: Optional[str] = None) -> Dict[str, Any]:
-    q = dict(params or {})
-    if token:
-        q["_token"] = token
-    resp = requests.get(f"{server}/cmd/{cmd}", params=q,
-                        headers={"Accept": "application/json"}, timeout=TIMEOUT)
+    resp = requests.get(f"{server}/cmd/{cmd}", params=dict(params or {}),
+                        headers=_auth_headers(token), timeout=TIMEOUT)
     return _safe_json(resp)
 
 
@@ -144,6 +149,50 @@ def response_message(resp: Dict[str, Any]) -> str:
     return inner.get("message", "") if isinstance(inner, dict) else ""
 
 
+def item_result(resp: Dict[str, Any]) -> Dict[str, str]:
+    """The per-entity result of a multi-object command (CreateUsers2, DeleteUsers).
+
+    Those commands report each entity's outcome under response.responses.response,
+    while the OUTER code is OK whenever the request was merely well formed.  A
+    per-entity AccessDenied therefore arrives inside an "OK" envelope, so the outer
+    code alone cannot tell you whether the entity was actually created or deleted.
+    Returns {} when the response carries no per-entity result at all.
+    """
+    if not isinstance(resp, dict):
+        return {}
+    inner = resp.get("response", resp)
+    if not isinstance(inner, dict):
+        return {}
+    node = (inner.get("responses") or {}).get("response") if isinstance(inner.get("responses"), dict) else None
+    if isinstance(node, list):
+        node = node[0] if node else None
+    if not isinstance(node, dict):
+        return {}
+    return {"code": node.get("code", "") or "", "message": node.get("message", "") or "",
+            "userid": ((node.get("user") or {}).get("userid", "") or "") if isinstance(node.get("user"), dict) else ""}
+
+
+def _second_factor_token(resp: Dict[str, Any]) -> str:
+    """The short-lived token login3 returns alongside SecondFactorRequired.
+
+    Observed shape: response.token, duplicated at response.body.token.  There is no
+    "user" node on that response, so response.user.token (where the session token
+    lives on a *successful* login) does not exist yet.  remembermfa.token is
+    deliberately ignored: it remembers a device and cannot complete this login.
+    """
+    inner = resp.get("response", resp) if isinstance(resp, dict) else {}
+    if not isinstance(inner, dict):
+        return ""
+    for candidate in (
+        ((inner.get("user") or {}).get("token") if isinstance(inner.get("user"), dict) else None),
+        inner.get("token"),
+        ((inner.get("body") or {}).get("token") if isinstance(inner.get("body"), dict) else None),
+    ):
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return ""
+
+
 def _safe_json(resp: requests.Response) -> Dict[str, Any]:
     try:
         return resp.json()
@@ -168,13 +217,36 @@ def admin_login(server: str) -> str:
                                                         "username": username, "password": password}})
         code = response_code(resp)
 
-        # MFA branch.  The exact command/field names depend on server config.
-        if code and any(k in code.lower() for k in ("factor", "mfa", "otp", "challenge", "verify", "multifactor")):
-            print(" MFA required.")
-            mfa_code = prompt_required("MFA / one-time code", env="BUZZ_ADMIN_MFA")
-            partial = (resp.get("response", {}) or {}).get("token", "") or resp.get("token", "")
-            resp = buzz_post(server, "verifylogin",
-                            {"request": {"cmd": "verifylogin", "token": partial, "code": mfa_code}})
+        # Multi-factor authentication.  login3 answers SecondFactorRequired when the
+        # password was correct but the account has MFA configured, and returns a
+        # short-lived token at response.token (there is no "user" node on that
+        # response).  That token is presented in an Authorization: Bearer header to
+        # secondfactorauthenticate, which returns the real session token.  Putting it
+        # in the request body instead is ignored and answers AccessDenied userId='-1'.
+        #   https://api.agilixbuzz.com/docs/entry/Command/Login3.md
+        #   https://api.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md
+        if code == "SecondFactorConfigurationNowRequired":
+            print("\n  This account must configure multi-factor authentication before it can")
+            print("  be used.  Complete MFA setup in Buzz, then re-run this script.")
+            if os.environ.get("BUZZ_ADMIN_PASSWORD"):
+                die("Admin account requires multi-factor authentication setup.")
+            print("  Press Ctrl+C to abort.\n")
+            continue
+
+        if code == "SecondFactorRequired":
+            print(" multi-factor authentication required.")
+            mfa_token = _second_factor_token(resp)
+            if not mfa_token:
+                print("\n  Buzz asked for a second factor but no token could be found in its reply.")
+                if os.environ.get("BUZZ_ADMIN_PASSWORD"):
+                    die("No second-factor token was returned.")
+                print("  Press Ctrl+C to abort.\n")
+                continue
+            otp = prompt_required("One-time code from your authenticator app or email",
+                                  env="BUZZ_ADMIN_MFA")
+            resp = buzz_post(server, "secondfactorauthenticate",
+                             {"request": {"cmd": "secondfactorauthenticate", "otp": otp}},
+                             token=mfa_token)
             code = response_code(resp)
 
         if code != "OK":

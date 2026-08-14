@@ -53,8 +53,9 @@ def run_sample(client: BuzzApiClient, log: logging.Logger) -> None:
     user_node = client.verify_response(client.json_request("GET", "getuser2"))
     user = user_node.get("user", {})
 
-    # This server returns the identifier as "id"; older servers use "userid".
-    user_id = user.get("userid") or user.get("id")
+    # The User schema names this "id".  ("userid" is the CreateUsers2 *response* field
+    # for a newly created user - a different command, not an alias here.)
+    user_id = user.get("id")
     username = user.get("username")
     first_name = user.get("firstname")
     last_name = user.get("lastname")

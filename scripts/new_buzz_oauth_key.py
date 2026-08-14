@@ -104,7 +104,7 @@ def main(argv=None) -> int:
     print(f"  Public key  : {pub_path}")
     print("\nNext step: register the public key with Buzz.")
     print("  python scripts/register_buzz_oauth_key.py \\")
-    print("      -s https://api.agilixbuzz.com -u <userid> -k <kid> -p public_key.pem")
+    print("      -s https://backgroundapi.agilixbuzz.com -u <userid> -k <kid> -p public_key.pem")
     print("\nIMPORTANT: Never commit private_key.pem to source control.")
     return 0
 

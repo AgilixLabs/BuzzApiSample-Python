@@ -26,8 +26,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import (  # noqa: E402
-    admin_login, buzz_get, buzz_post, confirm, die, info, ok, prompt_optional,
-    prompt_required, response_code, section, PROJECT_ROOT,
+    admin_login, buzz_get, buzz_post, confirm, die, info, item_result, ok,
+    prompt_optional, prompt_required, response_code, section, PROJECT_ROOT,
 )
 from new_buzz_oauth_key import generate_key_pair  # noqa: E402
 from register_buzz_oauth_key import register_public_key  # noqa: E402
@@ -52,7 +52,7 @@ def main(argv=None) -> int:
     # ── Step 1: Server URL ────────────────────────────────────────────────────
     section("Step 1: Buzz Server URL")
     server = (args.server or prompt_required(
-        "Buzz API server URL (e.g. https://api.agilixbuzz.com)", env="BUZZ_SERVER_URL")).rstrip("/")
+        "Buzz API server URL (e.g. https://backgroundapi.agilixbuzz.com)", env="BUZZ_SERVER_URL")).rstrip("/")
     ok(f"  Server: {server}")
 
     # ── Step 2: Admin login ───────────────────────────────────────────────────
@@ -143,7 +143,10 @@ def _get_or_create_account(server: str, admin_token: str) -> str:
             else:
                 target_domain = choice
         else:
-            print(" (could not fetch domains)\n")
+            # An empty list is normal when the admin holds no ReadDomain right anywhere,
+            # or when the domain simply has no child domains.  Not an error -- just ask.
+            print(" done\n")
+            print("  No domains were listed for this account, so enter the target domain directly.")
             target_domain = prompt_required("Domain id for the new account (e.g. //myschool or a numeric id)")
 
     username = prompt_required("Username for the account (e.g. sis-sync)", env="BUZZ_SETUP_APP_USERNAME")
@@ -161,6 +164,18 @@ def _get_or_create_account(server: str, admin_token: str) -> str:
     if response_code(resp) != "OK":
         die(f"CreateUsers2 failed (code: {response_code(resp)}).  Response: {resp}")
 
+    # The outer OK only means the request parsed; CreateUsers2 reports the outcome for
+    # the user it created under responses.response, so a denial arrives inside an "OK"
+    # envelope and must be checked separately.
+    item = item_result(resp)
+    if item.get("code") and item["code"] != "OK":
+        detail = f" - {item['message']}" if item.get("message") else ""
+        if item["code"] == "AccessDenied":
+            die(f"CreateUsers2 was denied (code: {item['code']}{detail}).\n"
+                f"  The admin account needs the CreateUser right on domain {target_domain}.\n"
+                f"  Grant it that right (and UpdateUser, so it can register the OAuth key), then re-run.")
+        die(f"CreateUsers2 failed for the requested user (code: {item['code']}{detail}).")
+
     user_id = _extract_created_userid(resp)
     if not user_id:
         die(f"CreateUsers2 succeeded but returned no userid.  Response: {resp}")
@@ -169,13 +184,22 @@ def _get_or_create_account(server: str, admin_token: str) -> str:
 
 
 def _list_domains(server: str, token: str):
-    resp = buzz_get(server, "getdomains", token=token)
+    # ListDomains, not "getdomains" -- the latter is not a Buzz command and always
+    # answered "Unknown API command", so this silently returned [] on every run.
+    # domainid=0 means "every domain this account has ReadDomain rights on"; limit=0
+    # lifts the default 100-domain cap (capped server-side at 1000 for domainid=0).
+    #   https://api.agilixbuzz.com/docs/entry/Command/ListDomains.md
+    resp = buzz_get(server, "listdomains", params={"domainid": 0, "limit": 0}, token=token)
     if response_code(resp) != "OK":
         return []
-    domains = (((resp.get("response", {}) or {}).get("domains", {}) or {}).get("domain")) or []
+    # When the account can read no domains the server answers OK with "domains":{},
+    # so every level has to tolerate a missing or empty node.
+    node = (resp.get("response", {}) or {}).get("domains") or {}
+    domains = (node.get("domain") if isinstance(node, dict) else None) or []
     if isinstance(domains, dict):
         domains = [domains]
-    return [(str(d.get("id", d.get("domainid", ""))), str(d.get("name", ""))) for d in domains if d]
+    # The Domain schema names the identifier "id"; "domainid" is what you *send*.
+    return [(str(d.get("id", "")), str(d.get("name", ""))) for d in domains if d]
 
 
 def _extract_created_userid(resp: dict) -> str:
