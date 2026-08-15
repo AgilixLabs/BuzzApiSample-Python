@@ -212,7 +212,7 @@ class BuzzApiClient:
 
         :param response_json: The parsed response to check.
         :param check_child_responses: Also verify each nested child response
-            (returned by batch APIs such as CreateUsers2).
+            (returned by multi-object commands such as CreateUsers2).
         :returns: The verified (non-null) response node.
         :raises BuzzApiError: If the response code is not ``OK``.
         """

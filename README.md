@@ -133,7 +133,7 @@ characters: ASCII letters, digits, `-`, `_`, `.` (max 128).
 
 ```bash
 python scripts/register_buzz_oauth_key.py \
-    -s https://api.agilixbuzz.com \
+    -s https://backgroundapi.agilixbuzz.com \
     -u 12345678 \
     -k 2025-q2 \
     -p public_key.pem
@@ -158,14 +158,16 @@ python sample.py
 from buzz_api_client import BuzzApiClient
 
 with BuzzApiClient.from_pem_file(
-    server_url="https://api.agilixbuzz.com",
+    server_url="https://backgroundapi.agilixbuzz.com",
     user_agent="MyApp/1.0 (Python; MyApp; admin@example.com)",
     oauth_user_id="12345678",
     oauth_kid="2025-q2",
     private_key_path="private_key.pem",
 ) as client:
     # BuzzApiClient obtains and refreshes Bearer tokens automatically.
-    domains = client.verify_response(client.json_request("GET", "getdomains"))
+    # domainid=0 lists every domain this account has ReadDomain rights on.
+    domains = client.verify_response(
+        client.json_request("GET", "listdomains", params={"domainid": 0}))
     user = client.verify_response(client.json_request("GET", "getuser2"))
     domain = client.verify_response(
         client.json_request("GET", "getdomain2", params={"domainid": "6"}))
@@ -173,7 +175,7 @@ with BuzzApiClient.from_pem_file(
 
 `json_request(method, cmd, params=None, json_body=None, include_token=True)` returns the parsed
 JSON response. `verify_response(node)` raises `BuzzApiError` unless `response.code == "OK"` (and
-recursively checks child responses from batch APIs).
+recursively checks child responses from multi-object commands such as CreateUsers2).
 
 ---
 
