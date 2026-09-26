@@ -376,16 +376,16 @@ class BuzzApiClient:
         retries_remaining = _RETRIES_TO_MAKE
         base_wait = _INITIAL_WAIT_SECONDS
         while True:
-            # Build a fresh assertion on every attempt: JWTs expire in two minutes
-            # and a long Retry-After backoff can push a reused assertion past exp.
+            # Wait out any throttle window first, then build a fresh assertion on every
+            # attempt: JWTs expire in two minutes and a throttle wait can be up to ten, so
+            # an assertion built before the wait (or reused) could be past its exp claim.
+            self._wait_for_throttle_window()
             assertion = self._build_client_assertion()
             form = {
                 "grant_type": "client_credentials",
                 "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
                 "client_assertion": assertion,
             }
-
-            self._wait_for_throttle_window()
 
             retry_after = None
             try:
