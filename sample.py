@@ -19,6 +19,11 @@ import sys
 from buzz_api_client import BuzzApiClient
 from buzz_config import read_config
 
+# Replace YOUR_APPLICATION_NAME with your application's name and version, such as "AcmeRosterSync/1.0".
+# It is how Agilix support identifies your integration. Do not include the word "Buzz": a User-Agent
+# containing it is treated as one of Agilix's own applications.
+APPLICATION_NAME = YOUR_APPLICATION_NAME
+
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stdout)
@@ -26,7 +31,7 @@ def main() -> None:
 
     config = read_config()
     user_agent = (
-        "BuzzApiClient/1.0.0 (Python; "
+        f"{APPLICATION_NAME} (Python; "
         f"{config['application_information']}; {config['contact_information']})"
     )
 

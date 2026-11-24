@@ -208,6 +208,13 @@ def admin_login(server: str) -> str:
     BUZZ_ADMIN_USERNAME / BUZZ_ADMIN_PASSWORD / BUZZ_ADMIN_MFA environment
     variables when present, otherwise prompts interactively.
     """
+    # Refuse a deprecated endpoint host name before asking for a password.
+    try:
+        from buzz_api_client import check_server_url
+        check_server_url(server)
+    except ValueError as e:
+        die(str(e))
+
     while True:
         username = _read_admin_username()
         password = prompt_password("Admin password", env="BUZZ_ADMIN_PASSWORD")
@@ -223,8 +230,8 @@ def admin_login(server: str) -> str:
         # response).  That token is presented in an Authorization: Bearer header to
         # secondfactorauthenticate, which returns the real session token.  Putting it
         # in the request body instead is ignored and answers AccessDenied userId='-1'.
-        #   https://api.agilixbuzz.com/docs/entry/Command/Login3.md
-        #   https://api.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md
+        #   https://interactiveapi.agilixbuzz.com/docs/entry/Command/Login3.md
+        #   https://interactiveapi.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md
         if code == "SecondFactorConfigurationNowRequired":
             print("\n  This account must configure multi-factor authentication before it can")
             print("  be used.  Complete MFA setup in Buzz, then re-run this script.")
@@ -248,6 +255,12 @@ def admin_login(server: str) -> str:
                              {"request": {"cmd": "secondfactorauthenticate", "otp": otp}},
                              token=mfa_token)
             code = response_code(resp)
+
+        # Buzz refuses a deprecated endpoint host name or sign-in for new users and
+        # domains.  Trying again cannot help, so stop and show what to use instead.
+        if code == "ApiDeprecated":
+            print()
+            die(response_message(resp) or "Buzz refused this request because it uses a deprecated API.")
 
         if code != "OK":
             msg = response_message(resp)

@@ -21,6 +21,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
+from urllib.parse import urlsplit
 
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
@@ -83,6 +84,35 @@ _NO_RETRY_STATUS = frozenset(
 )
 
 
+# The original, single API endpoint.  It is deprecated for integrations: Buzz
+# refuses it (code "ApiDeprecated") for users and domains created after the
+# deprecation was enforced.  Use the background endpoint for background
+# processing, or the interactive endpoint for requests a user is waiting on.
+#   https://interactiveapi.agilixbuzz.com/docs/entry/Concept/ApiDeprecation.md
+LEGACY_API_HOSTS = frozenset({"api.agilixbuzz.com"})
+
+# The response code Buzz gives a request that used a deprecated command,
+# endpoint host name or kind of sign-in.  It is never worth retrying.
+_DEPRECATED_CODE = "ApiDeprecated"
+
+
+def check_server_url(server_url: str) -> str:
+    """Return ``server_url`` trimmed, refusing a deprecated endpoint host name.
+
+    :raises ValueError: If the URL names a host in :data:`LEGACY_API_HOSTS`.
+    """
+    url = (server_url or "").strip().rstrip("/")
+    host = (urlsplit(url).hostname or "").lower()
+    if host in LEGACY_API_HOSTS:
+        raise ValueError(
+            f"{host} is deprecated for API integrations, and Buzz refuses it for new users and domains. "
+            "Use the background endpoint (https://backgroundapi.agilixbuzz.com) for background processing, "
+            "or the interactive endpoint (https://interactiveapi.agilixbuzz.com) for requests a user is waiting on. "
+            "See 'API Deprecation' and 'API Time Limiting' in the Buzz API documentation."
+        )
+    return url
+
+
 class BuzzApiError(Exception):
     """Raised when a Buzz API call fails or returns a non-OK response code.
 
@@ -92,6 +122,19 @@ class BuzzApiError(Exception):
     def __init__(self, message: str, status_code: Optional[int] = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class BuzzApiDeprecatedError(BuzzApiError):
+    """Raised when Buzz refuses a request because it used something deprecated
+    (response code ``ApiDeprecated``, or ``unauthorized_client`` from the OAuth
+    token endpoint).
+
+    Deprecated commands, the ``api.agilixbuzz.com`` endpoint and password
+    (Login3) sessions for integration work keep working for existing users and
+    domains, but are refused for new ones.  The message is the server's own and
+    says what to use instead.  **Never retry**: the request is refused until the
+    code is changed.
+    """
 
 
 class BuzzApiThrottledError(BuzzApiError):
@@ -194,7 +237,7 @@ class BuzzApiClient:
         if private_key is None:
             raise ValueError("private_key is required")
 
-        self.server_url = server_url.strip().rstrip("/")
+        self.server_url = check_server_url(server_url)
         self.user_agent = user_agent
         self.verbose = verbose
         self.timeout = timeout
@@ -328,6 +371,9 @@ class BuzzApiClient:
                     f"Buzz API call was throttled ({code}): {redacted}",
                     code, response_json, status_code=_throttle_status_code(200, code),
                 )
+            if code == _DEPRECATED_CODE:
+                message = json_to_verify.get("message") if isinstance(json_to_verify, dict) else None
+                raise BuzzApiDeprecatedError(f"Buzz refused a deprecated API: {message or redacted}")
             raise BuzzApiError(f"Buzz API call failed. Expected response.code to be OK, found: {redacted}")
 
         if check_child_responses:
@@ -418,6 +464,13 @@ class BuzzApiClient:
                             status_code=_throttle_status_code(response.status_code, None),
                         )
                     self._logger.error("OAuth token request failed: %s %s", response.status_code, body)
+                    # The token endpoint reports a deprecated endpoint host name
+                    # in the OAuth error format.  Retrying cannot help.
+                    if oauth_error == "unauthorized_client":
+                        description = error_json.get("error_description") if isinstance(error_json, dict) else None
+                        raise BuzzApiDeprecatedError(
+                            f"Buzz refused the OAuth token request: {description or body}", response.status_code
+                        )
                     raise _HttpStatusError(response.status_code, body)
 
                 token_json = response.json()

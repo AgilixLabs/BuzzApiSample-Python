@@ -188,7 +188,7 @@ def _list_domains(server: str, token: str):
     # answered "Unknown API command", so this silently returned [] on every run.
     # domainid=0 means "every domain this account has ReadDomain rights on"; limit=0
     # lifts the default 100-domain cap (capped server-side at 1000 for domainid=0).
-    #   https://api.agilixbuzz.com/docs/entry/Command/ListDomains.md
+    #   https://interactiveapi.agilixbuzz.com/docs/entry/Command/ListDomains.md
     resp = buzz_get(server, "listdomains", params={"domainid": 0, "limit": 0}, token=token)
     if response_code(resp) != "OK":
         return []

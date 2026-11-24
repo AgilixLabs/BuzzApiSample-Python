@@ -22,6 +22,9 @@ from _common import PROJECT_ROOT  # noqa: E402
 sys.path.insert(0, PROJECT_ROOT)
 from buzz_config import ENV_VARS, load_env  # noqa: E402
 
+# The User-Agent application name the quick start runs the sample under.
+QUICK_START_NAME = "QuickStartSample/1.0"
+
 
 def setup_complete() -> bool:
     load_env()
@@ -50,6 +53,11 @@ def main(argv=None) -> int:
         load_env()
 
     print("\n-- Running the sample ----------------------------------")
+    # Run under a temporary application name so the quick start works before sample.py is
+    # named: sample.py finds YOUR_APPLICATION_NAME in builtins, and is never edited.  Set your
+    # own name there before using the code anywhere else.
+    import builtins
+    builtins.YOUR_APPLICATION_NAME = QUICK_START_NAME  # type: ignore[attr-defined]
     import sample
     sample.main()
     return 0

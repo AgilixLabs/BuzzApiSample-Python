@@ -98,9 +98,33 @@ them in a `.env` file in the project root — it is loaded automatically and is 
 
 Copy `.env.example` to `.env` and fill it in, or let the setup script generate it (below).
 
+### Endpoints and deprecations
+
+Use `https://backgroundapi.agilixbuzz.com` for background processing (the default here), or the
+interactive endpoint (`https://interactiveapi.agilixbuzz.com`) for requests a user is waiting on. **Do not use `api.agilixbuzz.com`**: it is
+deprecated for integrations, Buzz refuses it for new users and domains, and `BuzzApiClient` and the
+setup scripts refuse it up front with a message saying what to use instead.
+
+Buzz retires deprecated parts of its API for users and domains created after each deprecation is
+enforced, and answers such a request with the code `ApiDeprecated` and a message naming the
+replacement. That covers obsolete commands (for example `GetUser`, replaced by `GetUser2`), the
+`api.agilixbuzz.com` endpoint, and using a password (`Login3`) session for integration work.
+`BuzzApiClient` raises `BuzzApiDeprecatedError` for it and never retries. This sample already uses
+only what is supported: OAuth for every API call, and `Login3` only in the setup and cleanup scripts,
+for the brief administrator sign-in that creates the Application Identity account. See
+[API Deprecation](https://interactiveapi.agilixbuzz.com/docs/entry/Concept/ApiDeprecation.md) in the
+Buzz API documentation.
+
 ---
 
 ## Quickest start
+
+**First, name your application.** Set `YOUR_APPLICATION_NAME` in `sample.py` to your application's
+name and version, such as `AcmeRosterSync/1.0`; until you do, the sample stops at start when run on
+its own. It goes in the User-Agent header, where Agilix support uses it to identify your
+integration. Do not include the word "Buzz": a User-Agent containing it is treated as one of
+Agilix's own applications. The quick start below runs the sample under a temporary name for you,
+without changing that file; set your own before using the code anywhere else.
 
 ### Run (setup + demo in one command)
 
@@ -231,6 +255,7 @@ outstanding tokens (`POST {server}/api/oauth/revoke` with form body `token=<acce
 | `invalid_client: ... signature or claims are invalid.` | Wrong private key, or `iss`/`sub` mismatch. | Confirm `BUZZ_OAUTH_USER_ID` is the Application Identity account's `userid` and the key matches the registered public key. |
 | HTTP 400 registering a key | Wrong PEM format or key too small. | Use an SPKI PEM (`-----BEGIN PUBLIC KEY-----`), minimum 2048 bits. |
 | HTTP 401/403 registering a key | Admin token lacks Update User rights. | Use an admin with the Update User right on the account. |
+| `BuzzApiDeprecatedError` / `ApiDeprecated` / `unauthorized_client` | The request used a deprecated command or the `api.agilixbuzz.com` endpoint, and the user or domain is too new to be allowed it. | Do what the message says: switch to the named replacement or endpoint. Do not retry. |
 
 ---
 
@@ -240,12 +265,12 @@ MFA affects only the **administrator login** that `python scripts/setup_buzz_oau
 create the Application Identity account and register its key. It does **not** affect the
 sample or your integration.
 
-An [Application Identity account](https://api.agilixbuzz.com/docs/entry/Concept/OAuth.md)
+An [Application Identity account](https://interactiveapi.agilixbuzz.com/docs/entry/Concept/OAuth.md)
 authenticates with a signed JWT assertion instead of a password, and cannot be logged into
 interactively at all. The API reference makes the consequence explicit: OAuth *"works in
 domains where MFA is required for administrative accounts, since it authenticates via
 signed JWT assertions rather than a username and
-password"* ([Login3](https://api.agilixbuzz.com/docs/entry/Command/Login3.md)). So an
+password"* ([Login3](https://interactiveapi.agilixbuzz.com/docs/entry/Command/Login3.md)). So an
 integration built on this sample keeps running unattended in a domain that requires MFA of
 every administrator — which is a large part of why OAuth is preferred over the legacy
 `login3` flow.
@@ -253,10 +278,10 @@ every administrator — which is a large part of why OAuth is preferred over the
 ### What the setup script does
 
 When the admin account has a second factor configured,
-[`login3`](https://api.agilixbuzz.com/docs/entry/Command/Login3.md) answers
+[`login3`](https://interactiveapi.agilixbuzz.com/docs/entry/Command/Login3.md) answers
 `SecondFactorRequired` and returns a short-lived token. The script prompts for the
 one-time code and presents both to
-[`secondfactorauthenticate`](https://api.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md),
+[`secondfactorauthenticate`](https://interactiveapi.agilixbuzz.com/docs/entry/Command/SecondFactorAuthenticate.md),
 which returns the real session token. That short-lived token is sent in an
 `Authorization: Bearer` header — it is ignored if placed in the request body.
 
@@ -287,3 +312,9 @@ sample authenticates via OAuth and needs no human involvement of any kind.
 | `AccountLockout` | Too many failed password attempts. | An administrator must unlock the account. |
 | `PasswordExpired` | The password expired under the domain's password policy. | Change the password in Buzz, then re-run. |
 | `LoginMethodNotAllowed` | The account does not permit password login (SSO-only, for example). | Use a different admin account for setup. |
+| `ApiDeprecated` | The server URL is a deprecated endpoint (`api.agilixbuzz.com`) and the account or its domain is too new to use it. | Re-run with `https://backgroundapi.agilixbuzz.com` as the server URL. |
+
+## Maintainers
+
+`pwsh -File scripts/Test-BuzzSample.ps1` builds and tests the sample under a placeholder
+application name without changing the entry point (see the script header for why).
